@@ -1,0 +1,10 @@
+#lang info
+(define collection "natural-cli")
+(define deps '("base"))
+(define build-deps '("scribble-lib" "racket-doc" "rackunit-lib"))
+(define scribblings '(("scribblings/natural-cli.scrbl" ())))
+(define pkg-desc "Build non-trivial CLIs with little effort.")
+(define version "1.0")
+(define pkg-authors '("Sage Gerard"))
+(define racket-launcher-libraries '("cli/natural-cli.rkt"))
+(define racket-launcher-names '("natural-cli"))
