@@ -270,8 +270,8 @@ with code created by @tt{natural-cli mkmodule}.
                                            (listof string?)
                                            (string? . -> . any)
                                            (string? . -> . any))]{
-Returns (in the order shown), a @racket[finish-expr], a
-@racket[arg-strings-expr], a @racket[help-expr], and a
+Returns (in the order shown), a @racket[finish-expr], an
+@racket[arg-strings-expr], a @racket[help-expr], and an
 @racket[unknown-expr] for use in the @racket[#:handlers] clause of
 @racket[command-line]. You can modify these values, but you need
 @racket[finish-expr] to transfer control to subcommands.
