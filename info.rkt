@@ -1,7 +1,7 @@
 #lang info
 (define collection "natural-cli")
 (define deps '("base" "compatibility-lib"))
-(define build-deps '("scribble-lib" "racket-doc" "rackunit-lib"))
+(define build-deps '("scribble-lib" "racket-doc" "rackunit-lib" "compatibility-doc"))
 (define scribblings '(("scribblings/natural-cli.scrbl" ())))
 (define pkg-desc "Build non-trivial CLIs with little effort.")
 (define version "1.0")
