@@ -11,6 +11,7 @@
           [get-program-name (-> path-string? string?)]))
 
 (require racket/format
+         racket/list
          racket/path
          racket/set
          racket/string
@@ -21,8 +22,11 @@
 ;; clause for (command-line). Shows contextualized help and a means
 ;; to send control to a subcommand module via dynamic-require.
 (define (make-subcommand-handlers cli-directory program-name)
-  (define subcommands (get-subcommands cli-directory program-name))
-  (define has-subcommands? (> (length subcommands) 0))
+  (define subcommand-analysis-results
+    (analyze-subcommand-files cli-directory program-name))
+
+  (define has-subcommands?
+    (> (hash-count subcommand-analysis-results) 0))
 
   (values
    ; handles arguments by delegating control
@@ -39,7 +43,7 @@
      (displayln s)
      (when has-subcommands?
        (displayln "where <subcommand> is one of")
-       (show-subcommand-help cli-directory program-name subcommands))
+       (show-subcommand-help cli-directory program-name subcommand-analysis-results))
      (exit 0))
 
    ; On unknown flag
@@ -53,18 +57,32 @@
 ;; '("a" "b")
 ;; > (get-subcommands (current-directory "foo_b"))
 ;; '("x")
-(define (get-subcommands where program-name)
-  (set->list
-   (for/fold ([working (set)])
-             ([relative-path (directory-list where)])
-     (define without-ext (path-replace-extension relative-path #""))
-     (define as-string (path->string without-ext))
-     (if (and (natural-cli-file-name? relative-path)
-              (string-prefix? as-string (format "~a_" program-name)))
-         (set-add working
-                  (car (string-split (string-replace as-string program-name "")
-                                     "_")))
-         working))))
+(define (get-subcommands analyzed-subcommands)
+  (flatten (hash-values analyzed-subcommands)))
+
+;; Using the above naming convention, collect information about
+;; subcommands. We key by the file identity to account for symbolic
+;; links as aliases.
+(define (analyze-subcommand-files where program-name)
+  (parameterize ([current-directory where])
+    (for/fold ([working (hash)]
+               #:result
+               (for/hash ([(k v) (in-hash working)])
+                 (values k (sort v #:key string-length >))))
+              ([relative-path (directory-list)])
+      (define without-ext (path-replace-extension relative-path #""))
+      (define as-string (path->string without-ext))
+      (define file-id (file-or-directory-identity relative-path))
+      (define existing-names (hash-ref working file-id null))
+      (if (and (natural-cli-file-name? relative-path)
+               (string-prefix? as-string (format "~a_" program-name)))
+          (hash-set working
+                    file-id
+                    (cons (cadr (string-split as-string "_"))
+                          existing-names))
+          working))))
+
+
 
 (define (natural-cli-file-name? name)
   (and (bytes=? (or (path-get-extension name) #"") #".rkt")
@@ -78,21 +96,31 @@
                       program-name
                       subcommand)))
 
+
 (define expected-handler-name 'process-command-line)
 (define (natural-cli-run-subcommand cli-directory program-name argv)
-  (define subcommands (get-subcommands cli-directory program-name))
+  (define subcommand-analysis-results
+    (analyze-subcommand-files cli-directory program-name))
+
+  (define subcommands
+    (get-subcommands subcommand-analysis-results))
+
+  (define (show-help!)
+    (displayln "Available subcommands:")
+    (show-subcommand-help cli-directory
+                          program-name
+                          subcommand-analysis-results))
+
   (when (> (length subcommands) 0)
     (unless (> (vector-length argv) 0)
       (printf "~a: Command not specified~n~n" program-name)
-      (displayln "Available subcommands:")
-      (show-subcommand-help cli-directory program-name subcommands)
+      (show-help!)
       (exit 1))
 
     (define subcommand (vector-ref argv 0))
     (unless (member subcommand subcommands)
       (printf "~a: `~a` is not a command~n~n" program-name subcommand)
-      (displayln "Available subcommands:")
-      (show-subcommand-help cli-directory program-name subcommands)
+      (show-help!)
       (exit 1))
 
     (parameterize ([current-command-line-arguments (vector-drop argv 1)])
@@ -106,19 +134,48 @@
                                 (exit 1)))
              null))))
 
-(define (show-subcommand-help cli-directory program-name subcommands)
-  (define longest (apply max (map string-length subcommands)))
-  (for/list ([subcmd subcommands])
-    (define name-column
-      (~a subcmd
+(define (show-subcommand-help cli-directory
+                              program-name
+                              subcommand-analysis-results)
+  (define subcommand-groups
+    (hash-values subcommand-analysis-results))
+
+  (define subcommand+descriptions null)
+
+  (define (add! name desc)
+    (set! subcommand+descriptions
+          (cons (cons name desc)
+                subcommand+descriptions)))
+
+  (for ([sg (in-list subcommand-groups)])
+    (define base-command (car sg))
+    (add! base-command
+          (dynamic-require (get-subcommand-path cli-directory
+                                                program-name
+                                                base-command)
+                           'summary
+                           (λ _ "Run with -h for details.")))
+    (for ([alias (cdr sg)])
+      (add! alias (format "Alias for ~a" base-command))))
+
+  (set! subcommand+descriptions
+        (sort subcommand+descriptions #:key car string<?))
+
+  (define longest
+    (apply max
+           (map (compose string-length car)
+                subcommand+descriptions)))
+
+  (for/list ([pair (in-list subcommand+descriptions)])
+    (define name
+      (~a (car pair)
           #:align 'right
           #:min-width longest
           #:left-pad-string " "))
+
     (printf "  ~a: ~a~n"
-            name-column
-            (dynamic-require (get-subcommand-path cli-directory program-name subcmd)
-                             'summary
-                             (λ _ "Run with -h for details.")))))
+            name
+            (cdr pair))))
 
 (define (get-program-name path-string)
   (path->string (path-replace-extension path-string #"")))
